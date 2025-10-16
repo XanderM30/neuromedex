@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "966717177489",
+    "project_id": "neuromedx-77c11",
+    "storage_bucket": "neuromedx-77c11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:966717177489:android:303482eb5e94eae1544930",
+        "android_client_info": {
+          "package_name": "com.example.neuromedex"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBsu4LxEvf7cs9SuAu6nau75wa-3nr8YD8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
