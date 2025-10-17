@@ -73,6 +73,8 @@ class _RegisterScreenState extends State<RegisterScreen>
       });
 
       // 🔹 Confirmación visual
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("✅ Registro exitoso, bienvenido a NeuroMedex"),
