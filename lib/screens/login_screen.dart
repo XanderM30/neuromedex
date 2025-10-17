@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'register_screen.dart'; // pantalla de registro
+import 'package:firebase_auth/firebase_auth.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,10 +18,12 @@ class _LoginScreenState extends State<LoginScreen>
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  bool _isLoading = false;
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
-
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -39,6 +42,53 @@ class _LoginScreenState extends State<LoginScreen>
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  // 👇 Función para iniciar sesión
+  Future<void> _loginUser() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Autenticación con Firebase Auth
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      // Si llega aquí, el login fue exitoso
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Inicio de sesión exitoso ✅')),
+        );
+
+        // Aquí puedes navegar a tu pantalla principal
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'No existe un usuario con ese correo.';
+          break;
+        case 'wrong-password':
+          message = 'Contraseña incorrecta.';
+          break;
+        case 'invalid-email':
+          message = 'Correo electrónico no válido.';
+          break;
+        default:
+          message = 'Error al iniciar sesión. Intenta nuevamente.';
+      }
+
+      setState(() {
+        _errorMessage = message;
+      });
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -67,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Logo / icono
+                      // Icono
                       Container(
                         width: 100,
                         height: 100,
@@ -92,19 +142,12 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       const SizedBox(height: 20),
 
-                      // Título de la app
+                      // Título
                       Text(
                         "NeuroMedX",
                         style: GoogleFonts.lobster(
                           fontSize: 40,
                           color: Colors.white,
-                          shadows: [
-                            Shadow(
-                              color: Colors.teal.shade400,
-                              offset: const Offset(2, 2),
-                              blurRadius: 4,
-                            ),
-                          ],
                         ),
                       ),
                       const SizedBox(height: 40),
@@ -163,9 +206,7 @@ class _LoginScreenState extends State<LoginScreen>
                               width: double.infinity,
                               height: 50,
                               child: ElevatedButton(
-                                onPressed: () {
-                                  // Lógica de login
-                                },
+                                onPressed: _isLoading ? null : _loginUser,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.teal.shade400,
                                   shape: RoundedRectangleBorder(
@@ -173,15 +214,29 @@ class _LoginScreenState extends State<LoginScreen>
                                   ),
                                   elevation: 5,
                                 ),
-                                child: const Text(
-                                  "Iniciar sesión",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                child: _isLoading
+                                    ? const CircularProgressIndicator(
+                                        color: Colors.white,
+                                      )
+                                    : const Text(
+                                        "Iniciar sesión",
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                               ),
                             ),
+                            if (_errorMessage != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                _errorMessage!,
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 15),
 
                             // Botón de crear cuenta
@@ -220,7 +275,6 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
 
                       const SizedBox(height: 20),
-                      // Texto secundario
                       Text(
                         "¿Olvidaste tu contraseña?",
                         style: TextStyle(

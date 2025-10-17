@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -10,33 +12,96 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
 
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
+
+  String? _errorMessage;
+  bool _isLoading = false;
+
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-
-    _fadeController = AnimationController(
+    _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
+      duration: const Duration(seconds: 2),
+    )..forward();
+
     _fadeAnimation = Tween<double>(
       begin: 0,
       end: 1,
-    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
 
-    _fadeController.forward();
+  Future<void> _register() async {
+    setState(() {
+      _errorMessage = null;
+      _isLoading = true;
+    });
+
+    if (_passwordController.text != _confirmController.text) {
+      setState(() {
+        _errorMessage = "⚠️ Las contraseñas no coinciden";
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      // 🔹 Crear usuario en Firebase Authentication
+      UserCredential userCredential = await _auth
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+
+      final user = userCredential.user;
+
+      // 🔹 Guardar datos en Firestore
+      await _firestore.collection('users').doc(user!.uid).set({
+        'uid': user.uid,
+        'nombre': _nameController.text.trim(),
+        'correo': _emailController.text.trim(),
+        'fecha_registro': FieldValue.serverTimestamp(),
+      });
+
+      // 🔹 Confirmación visual
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ Registro exitoso, bienvenido a NeuroMedex"),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        if (e.code == 'email-already-in-use') {
+          _errorMessage = 'Este correo ya está registrado.';
+        } else if (e.code == 'invalid-email') {
+          _errorMessage = 'Correo electrónico inválido.';
+        } else if (e.code == 'weak-password') {
+          _errorMessage = 'La contraseña es demasiado débil.';
+        } else {
+          _errorMessage = 'Error al registrar usuario.';
+        }
+      });
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
   void dispose() {
-    _fadeController.dispose();
+    _controller.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -70,7 +135,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Logo
+                      // 🔹 Logo circular animado
                       Container(
                         width: 100,
                         height: 100,
@@ -87,7 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                         ),
                         child: const Center(
                           child: Icon(
-                            Icons.medical_services,
+                            Icons.medical_services_rounded,
                             color: Colors.white,
                             size: 50,
                           ),
@@ -95,7 +160,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       const SizedBox(height: 20),
 
-                      // Título
+                      // 🔹 Título con fuente elegante
                       Text(
                         "Registro",
                         style: GoogleFonts.lobster(
@@ -103,142 +168,98 @@ class _RegisterScreenState extends State<RegisterScreen>
                           color: Colors.white,
                           shadows: [
                             Shadow(
-                              color: Colors.teal.shade400,
+                              color: Colors.tealAccent.shade100,
                               offset: const Offset(2, 2),
-                              blurRadius: 4,
+                              blurRadius: 8,
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 30),
 
-                      // Campos de registro
+                      // 🔹 Campos de texto
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32.0),
                         child: Column(
                           children: [
-                            TextField(
+                            _buildTextField(
                               controller: _nameController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: "Nombre completo",
-                                hintStyle: TextStyle(
-                                  color: Colors.white.withAlpha(150),
-                                ),
-                                filled: true,
-                                fillColor: Colors.teal.shade700.withAlpha(100),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide.none,
-                                ),
-                                prefixIcon: const Icon(
-                                  Icons.person,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              icon: Icons.person,
+                              hint: "Nombre completo",
                             ),
                             const SizedBox(height: 15),
-                            TextField(
+                            _buildTextField(
                               controller: _emailController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: "Correo electrónico",
-                                hintStyle: TextStyle(
-                                  color: Colors.white.withAlpha(150),
-                                ),
-                                filled: true,
-                                fillColor: Colors.teal.shade700.withAlpha(100),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide.none,
-                                ),
-                                prefixIcon: const Icon(
-                                  Icons.email,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              icon: Icons.email,
+                              hint: "Correo electrónico",
                             ),
                             const SizedBox(height: 15),
-                            TextField(
+                            _buildTextField(
                               controller: _passwordController,
-                              obscureText: true,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: "Contraseña",
-                                hintStyle: TextStyle(
-                                  color: Colors.white.withAlpha(150),
-                                ),
-                                filled: true,
-                                fillColor: Colors.teal.shade700.withAlpha(100),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide.none,
-                                ),
-                                prefixIcon: const Icon(
-                                  Icons.lock,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              icon: Icons.lock,
+                              hint: "Contraseña",
+                              obscure: true,
                             ),
                             const SizedBox(height: 15),
-                            TextField(
+                            _buildTextField(
                               controller: _confirmController,
-                              obscureText: true,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: "Confirmar contraseña",
-                                hintStyle: TextStyle(
-                                  color: Colors.white.withAlpha(150),
+                              icon: Icons.lock_outline,
+                              hint: "Confirmar contraseña",
+                              obscure: true,
+                            ),
+                            const SizedBox(height: 20),
+
+                            if (_errorMessage != null)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8.0,
                                 ),
-                                filled: true,
-                                fillColor: Colors.teal.shade700.withAlpha(100),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide.none,
-                                ),
-                                prefixIcon: const Icon(
-                                  Icons.lock_outline,
-                                  color: Colors.white,
+                                child: Text(
+                                  _errorMessage!,
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 30),
 
-                            // Botón registrar
+                            const SizedBox(height: 10),
+
+                            // 🔹 Botón Registrar
                             SizedBox(
                               width: double.infinity,
                               height: 50,
                               child: ElevatedButton(
-                                onPressed: () {
-                                  // Lógica de registro
-                                },
+                                onPressed: _isLoading ? null : _register,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.teal.shade400,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                   ),
-                                  elevation: 5,
                                 ),
-                                child: const Text(
-                                  "Registrar",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                child: _isLoading
+                                    ? const CircularProgressIndicator(
+                                        color: Colors.white,
+                                      )
+                                    : const Text(
+                                        "Registrar",
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                               ),
                             ),
+
                             const SizedBox(height: 20),
 
-                            // Botón regresar a login
+                            // 🔹 Regresar a login
                             TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                              },
+                              onPressed: () => Navigator.pop(context),
                               child: Text(
-                                "¿Ya tienes una cuenta? Inicia sesión",
+                                "¿Ya tienes cuenta? Inicia sesión",
                                 style: TextStyle(
-                                  color: Colors.tealAccent.withAlpha(180),
+                                  color: Colors.tealAccent.withAlpha(200),
                                 ),
                               ),
                             ),
@@ -252,6 +273,31 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
           );
         },
+      ),
+    );
+  }
+
+  // 🔧 Widget para reutilizar campos de texto
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required IconData icon,
+    required String hint,
+    bool obscure = false,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscure,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.white.withAlpha(150)),
+        filled: true,
+        fillColor: Colors.teal.shade700.withAlpha(100),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        prefixIcon: Icon(icon, color: Colors.white),
       ),
     );
   }
