@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -40,6 +41,17 @@ class _RegisterScreenState extends State<RegisterScreen>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
+  // 🔹 Verifica la conexión a internet correctamente
+  Future<bool> _hasInternet() async {
+    try {
+      var result = await Connectivity().checkConnectivity();
+      return result != ConnectivityResult.none;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 🔹 Función de registro
   Future<void> _register() async {
     setState(() {
       _errorMessage = null;
@@ -54,8 +66,15 @@ class _RegisterScreenState extends State<RegisterScreen>
       return;
     }
 
+    if (!await _hasInternet()) {
+      setState(() {
+        _errorMessage = "⚠️ No hay conexión a Internet";
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
-      // 🔹 Crear usuario en Firebase Authentication
       UserCredential userCredential = await _auth
           .createUserWithEmailAndPassword(
             email: _emailController.text.trim(),
@@ -64,7 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
       final user = userCredential.user;
 
-      // 🔹 Guardar datos en Firestore
+      // 🔹 Guardar usuario en Firestore
       await _firestore.collection('users').doc(user!.uid).set({
         'uid': user.uid,
         'nombre': _nameController.text.trim(),
@@ -72,7 +91,6 @@ class _RegisterScreenState extends State<RegisterScreen>
         'fecha_registro': FieldValue.serverTimestamp(),
       });
 
-      // 🔹 Confirmación visual
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -86,7 +104,9 @@ class _RegisterScreenState extends State<RegisterScreen>
       if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
       setState(() {
-        if (e.code == 'email-already-in-use') {
+        if (e.code == 'network-request-failed') {
+          _errorMessage = "⚠️ No hay conexión a Internet";
+        } else if (e.code == 'email-already-in-use') {
           _errorMessage = 'Este correo ya está registrado.';
         } else if (e.code == 'invalid-email') {
           _errorMessage = 'Correo electrónico inválido.';
@@ -95,9 +115,15 @@ class _RegisterScreenState extends State<RegisterScreen>
         } else {
           _errorMessage = 'Error al registrar usuario.';
         }
+        _isLoading = false;
+      });
+    } catch (_) {
+      setState(() {
+        _errorMessage = "⚠️ Ocurrió un error inesperado";
+        _isLoading = false;
       });
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -137,7 +163,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // 🔹 Logo circular animado
+                      // Logo
                       Container(
                         width: 100,
                         height: 100,
@@ -162,7 +188,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       const SizedBox(height: 20),
 
-                      // 🔹 Título con fuente elegante
+                      // Título
                       Text(
                         "Registro",
                         style: GoogleFonts.lobster(
@@ -179,7 +205,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       const SizedBox(height: 30),
 
-                      // 🔹 Campos de texto
+                      // Formulario
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32.0),
                         child: Column(
@@ -227,7 +253,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
                             const SizedBox(height: 10),
 
-                            // 🔹 Botón Registrar
+                            // Botón Registrar
                             SizedBox(
                               width: double.infinity,
                               height: 50,
@@ -255,7 +281,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
                             const SizedBox(height: 20),
 
-                            // 🔹 Regresar a login
+                            // Regresar a login
                             TextButton(
                               onPressed: () => Navigator.pop(context),
                               child: Text(
@@ -279,7 +305,6 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
-  // 🔧 Widget para reutilizar campos de texto
   Widget _buildTextField({
     required TextEditingController controller,
     required IconData icon,
