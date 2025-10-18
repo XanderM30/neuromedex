@@ -41,16 +41,6 @@ class _RegisterScreenState extends State<RegisterScreen>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
-  // 🔹 Verifica la conexión a internet correctamente
-  Future<bool> _hasInternet() async {
-    try {
-      var result = await Connectivity().checkConnectivity();
-      return result != ConnectivityResult.none;
-    } catch (_) {
-      return false;
-    }
-  }
-
   // 🔹 Función de registro
   Future<void> _register() async {
     setState(() {
@@ -66,7 +56,9 @@ class _RegisterScreenState extends State<RegisterScreen>
       return;
     }
 
-    if (!await _hasInternet()) {
+    // 🔹 Verificación de conexión correcta
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
       setState(() {
         _errorMessage = "⚠️ No hay conexión a Internet";
         _isLoading = false;
@@ -97,11 +89,15 @@ class _RegisterScreenState extends State<RegisterScreen>
         const SnackBar(
           content: Text("✅ Registro exitoso, bienvenido a NeuroMedex"),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
 
       await Future.delayed(const Duration(seconds: 2));
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+
+      // 🔹 Redirige al login
+      Navigator.pushReplacementNamed(context, '/login');
     } on FirebaseAuthException catch (e) {
       setState(() {
         if (e.code == 'network-request-failed') {

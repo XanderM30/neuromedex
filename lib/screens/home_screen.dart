@@ -102,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       child: SlideTransition(
                         position: _slideAnimation,
                         child: Text(
-                          'Hola,\n$_userName',
+                          'Hola \n $_userName',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.lobster(
                             fontSize: 36,
@@ -190,11 +190,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       width: 160,
       margin: const EdgeInsets.only(right: 15),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [color.withOpacity(0.8), color]),
+        gradient: LinearGradient(colors: [color.withValues(alpha: 0.8), color]),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.5),
+            color: color.withValues(alpha: 0.5),
             blurRadius: 15,
             offset: const Offset(0, 6),
           ),
@@ -233,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       elevation: 6,
-      color: color.withOpacity(0.85),
+      color: color.withValues(alpha: 0.85),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: () {},
