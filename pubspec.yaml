@@ -17,7 +17,9 @@ dependencies:
   lottie: ^3.3.2
   cupertino_icons: ^1.0.8
   connectivity_plus: ^7.0.0
-
+  carousel_slider: ^5.1.1
+  logger: ^1.2.2
+  
 
 dev_dependencies:
   flutter_test:
@@ -35,3 +37,6 @@ flutter:
     - assets/lottie/Notification.json
     - assets/lottie/Profile.json
     - assets/lottie/Configuracion.json
+    - assets/lottie/Microphone.json
+    
+    

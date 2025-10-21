@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:lottie/lottie.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carousel_slider/carousel_slider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,9 +14,20 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _userName = "Usuario";
+  final TextEditingController _symptomController = TextEditingController();
+  List<String> _selectedSymptoms = [];
+
+  // Chips de ejemplo
+  final List<String> _commonSymptoms = [
+    "Fiebre",
+    "Dolor de cabeza",
+    "Tos",
+    "Cansancio",
+    "Dolor muscular",
+  ];
+
   late AnimationController _gradientController;
   late Animation<Color?> _backgroundAnimation;
-
   late AnimationController _greetingController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
@@ -28,28 +41,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _userName = user.displayName ?? user.email?.split("@")[0] ?? "Usuario";
     }
 
-    // Animación de fondo degradado
+    // Fondo animado turquesa
     _gradientController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat(reverse: true);
 
     _backgroundAnimation = ColorTween(
-      begin: Colors.black,
-      end: Colors.teal.shade900,
+      begin: Colors.white,
+      end: Colors.teal.shade50,
     ).animate(_gradientController);
 
-    // Animación del saludo
+    // Animación saludo
     _greetingController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
 
     _slideAnimation =
-        Tween<Offset>(
-          begin: const Offset(0, 0.3), // empieza un poco abajo
-          end: Offset.zero,
-        ).animate(
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
           CurvedAnimation(parent: _greetingController, curve: Curves.easeOut),
         );
 
@@ -65,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     _gradientController.dispose();
     _greetingController.dispose();
+    _symptomController.dispose();
     super.dispose();
   }
 
@@ -74,104 +85,72 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       animation: _gradientController,
       builder: (context, child) {
         return Scaffold(
-          body: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.black,
-                  _backgroundAnimation.value ?? Colors.teal.shade900,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 20,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Saludo animado
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: Text(
-                          'Hola \n $_userName',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.lobster(
-                            fontSize: 36,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+          backgroundColor: _backgroundAnimation.value,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 👋 Saludo animado
+                  FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: Text(
+                        "Hola \n$_userName 👋",
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal.shade800,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 25),
+                  ),
+                  const SizedBox(height: 8),
 
-                    // Dashboard horizontal con Lottie
-                    SizedBox(
-                      height: 180,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          _buildDashboardCard(
-                            title: 'Medicación',
-                            color: Colors.deepPurple,
-                            lottie: 'assets/lottie/Pills.json',
-                          ),
-                          _buildDashboardCard(
-                            title: 'Monitoreo',
-                            color: Colors.teal,
-                            lottie: 'assets/lottie/Heart.json',
-                          ),
-                          _buildDashboardCard(
-                            title: 'Citas',
-                            color: Colors.orange,
-                            lottie: 'assets/lottie/Calendar.json',
-                          ),
-                        ],
-                      ),
+                  // Subtítulo centrado
+                  Text(
+                    "¿Cómo te sientes hoy?",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      color: Colors.teal.shade600,
                     ),
-                    const SizedBox(height: 20),
+                  ),
+                  const SizedBox(height: 20),
 
-                    // Grid con tarjetas verticales
-                    Expanded(
-                      child: GridView.count(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 20,
-                        crossAxisSpacing: 20,
-                        children: [
-                          _buildFeatureCard(
-                            'Reportes',
-                            Colors.pink,
-                            'assets/lottie/Reports.json',
-                          ),
-                          _buildFeatureCard(
-                            'Recordatorios',
-                            Colors.indigo,
-                            'assets/lottie/Notification.json',
-                          ),
-                          _buildFeatureCard(
-                            'Perfil',
-                            Colors.cyan,
-                            'assets/lottie/Profile.json',
-                          ),
-                          _buildFeatureCard(
-                            'Funciones Avanzadas',
-                            Colors.amber,
-                            'assets/lottie/Configuracion.json',
-                          ),
-                        ],
-                      ),
+                  // Campo de síntomas con chips + micrófono
+                  _buildSymptomInputWithChips(),
+
+                  const SizedBox(height: 30),
+
+                  // ⚙️ Panel rápido (tarjetas)
+                  _buildFeatureGrid(),
+
+                  const SizedBox(height: 30),
+
+                  // 💡 Título del carrusel
+                  Text(
+                    "Recomendaciones de salud",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.teal.shade700,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 💡 Carrusel de tips desde Firebase
+                  _buildTipsCarousel(),
+
+                  const SizedBox(height: 30),
+
+                  // 🤖 Asistente de salud IA
+                  _buildHealthAssistantCard(),
+                ],
               ),
             ),
           ),
@@ -180,84 +159,236 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Dashboard horizontal
-  Widget _buildDashboardCard({
-    required String title,
-    required Color color,
-    required String lottie,
-  }) {
-    return Container(
-      width: 160,
-      margin: const EdgeInsets.only(right: 15),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [color.withValues(alpha: 0.8), color]),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.5),
-            blurRadius: 15,
-            offset: const Offset(0, 6),
+  // Campo para ingresar síntomas + chips sugeridos
+  Widget _buildSymptomInputWithChips() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.teal.shade100,
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () {},
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
             children: [
               Expanded(
-                child: Lottie.asset(lottie, repeat: true, fit: BoxFit.contain),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                child: TextField(
+                  controller: _symptomController,
+                  decoration: const InputDecoration(
+                    hintText: "Describe tus síntomas...",
+                    border: InputBorder.none,
+                  ),
                 ),
-                textAlign: TextAlign.center,
+              ),
+              InkWell(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("🎤 Grabación iniciada (simulada)"),
+                    ),
+                  );
+                },
+                child: Lottie.asset(
+                  'assets/lottie/Microphone.json',
+                  width: 50,
+                  height: 50,
+                  repeat: true,
+                ),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: _commonSymptoms.map((symptom) {
+            final isSelected = _selectedSymptoms.contains(symptom);
+            return ChoiceChip(
+              label: Text(symptom),
+              selected: isSelected,
+              selectedColor: Colors.teal.shade300,
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _selectedSymptoms.add(symptom);
+                  } else {
+                    _selectedSymptoms.remove(symptom);
+                  }
+                });
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  // Carrusel de tips desde Firebase
+  final List<String> _testTips = [
+    "Bebe suficiente agua todos los días",
+    "Realiza estiramientos por la mañana",
+    "Duerme al menos 7 horas",
+    "Evita el exceso de azúcar",
+    "Camina 30 minutos diarios",
+  ];
+
+  // Carrusel de tips mejorado
+  Widget _buildTipsCarousel() {
+    final tips = _testTips;
+
+    return CarouselSlider.builder(
+      itemCount: tips.length,
+      itemBuilder: (context, index, realIdx) {
+        final tip = tips[index];
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(25),
+            gradient: LinearGradient(
+              colors: [Colors.teal.shade300, Colors.teal.shade100],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.teal.shade200.withValues(alpha: 0.6),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Text(
+                tip,
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal.shade900,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        );
+      },
+      options: CarouselOptions(
+        height: 200,
+        autoPlay: true,
+        enlargeCenterPage: true,
+        viewportFraction: 0.85,
+        autoPlayInterval: const Duration(seconds: 3),
+        autoPlayAnimationDuration: const Duration(milliseconds: 800),
+        scrollPhysics: const BouncingScrollPhysics(),
       ),
     );
   }
 
-  // Tarjetas verticales del grid
-  Widget _buildFeatureCard(String title, Color color, String lottie) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      elevation: 6,
-      color: color.withValues(alpha: 0.85),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () {},
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Lottie.asset(lottie, repeat: true, fit: BoxFit.contain),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+  // Panel rápido
+  Widget _buildFeatureGrid() {
+    final features = [
+      {'title': 'Medicación', 'icon': 'assets/lottie/Pills.json'},
+      {'title': 'Monitoreo', 'icon': 'assets/lottie/Heart.json'},
+      {'title': 'Citas', 'icon': 'assets/lottie/Calendar.json'},
+      {'title': 'Recordatorios', 'icon': 'assets/lottie/Notification.json'},
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 15,
+        mainAxisSpacing: 15,
+        childAspectRatio: 1,
+      ),
+      itemCount: features.length,
+      itemBuilder: (context, index) {
+        final item = features[index];
+        return InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {},
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.teal.shade200,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.teal.shade100,
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Lottie.asset(item['icon']!, fit: BoxFit.contain),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    item['title']!,
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+        );
+      },
+    );
+  }
+
+  // Asistente IA
+  Widget _buildHealthAssistantCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade700,
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              "🤖 Tu asistente de salud\nAnaliza tus síntomas con IA",
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.teal.shade700,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            onPressed: () {
+              // Abrir asistente IA
+            },
+            child: const Text("Analizar"),
+          ),
+        ],
       ),
     );
   }
