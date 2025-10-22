@@ -1,0 +1,32 @@
+[
+    {
+        "nombre": "Gastroenteritis",
+        "sintomas": [
+            "Náuseas",
+            "Vómito",
+            "Diarrea",
+            "Dolor abdominal",
+            "Cansancio"
+        ],
+        "tips": []
+    },
+    {
+        "nombre": "Gripe",
+        "sintomas": [
+            "Fiebre",
+            "Tos",
+            "Cansancio",
+            "Dolor de cabeza"
+        ],
+        "tips": []
+    },
+    {
+        "nombre": "Resfriado común",
+        "sintomas": [
+            "Congestión nasal",
+            "Estornudos",
+            "Dolor de garganta"
+        ],
+        "tips": []
+    }
+]

@@ -58,6 +58,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
     // 🔹 Verificación de conexión correcta
     var connectivityResult = await Connectivity().checkConnectivity();
+    // ignore: unrelated_type_equality_checks
     if (connectivityResult == ConnectivityResult.none) {
       setState(() {
         _errorMessage = "⚠️ No hay conexión a Internet";

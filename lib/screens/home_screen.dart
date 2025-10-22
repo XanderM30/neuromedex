@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:lottie/lottie.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:tflite_flutter/tflite_flutter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,22 +19,19 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _userName = "Usuario";
   final TextEditingController _symptomController = TextEditingController();
-  List<String> _selectedSymptoms = [];
 
-  // Chips de ejemplo
-  final List<String> _commonSymptoms = [
-    "Fiebre",
-    "Dolor de cabeza",
-    "Tos",
-    "Cansancio",
-    "Dolor muscular",
-  ];
+  Interpreter? _interpreter;
+  bool _isModelReady = false;
+  String _predictionResult = "";
 
   late AnimationController _gradientController;
   late Animation<Color?> _backgroundAnimation;
   late AnimationController _greetingController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
+
+  final List<dynamic> _diseasesData = [];
+  final Map<String, List<String>> symptomDictionary = {};
 
   @override
   void initState() {
@@ -41,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _userName = user.displayName ?? user.email?.split("@")[0] ?? "Usuario";
     }
 
-    // Fondo animado turquesa
     _gradientController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 5),
@@ -52,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       end: Colors.teal.shade50,
     ).animate(_gradientController);
 
-    // Animación saludo
     _greetingController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -67,8 +66,186 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       begin: 0,
       end: 1,
     ).animate(_greetingController);
-
     _greetingController.forward();
+
+    _checkAndUpdateModel();
+  }
+
+  Future<void> _checkAndUpdateModel() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+
+      final versionFile = File('${dir.path}/version.txt');
+      String localVersion = '0';
+      if (versionFile.existsSync()) {
+        localVersion = await versionFile.readAsString();
+      }
+
+      final versionUrl =
+          'https://raw.githubusercontent.com/XanderM30/RedNeuronal/main/version.txt';
+      String remoteVersion = localVersion;
+      try {
+        final versionResponse = await http.get(Uri.parse(versionUrl));
+        if (versionResponse.statusCode == 200) {
+          remoteVersion = versionResponse.body.trim();
+        }
+      } catch (_) {
+        debugPrint("No hay internet, se usará versión local");
+      }
+
+      bool needUpdate = remoteVersion != localVersion;
+
+      final modelFile = File('${dir.path}/modelo_enfermedades.tflite');
+      if (needUpdate || !modelFile.existsSync()) {
+        final modelUrl =
+            'https://raw.githubusercontent.com/XanderM30/RedNeuronal/main/modelo_enfermedades.tflite';
+        try {
+          final modelResponse = await http.get(Uri.parse(modelUrl));
+          if (modelResponse.statusCode == 200) {
+            await modelFile.writeAsBytes(modelResponse.bodyBytes);
+          }
+        } catch (_) {
+          debugPrint("No se pudo descargar modelo");
+        }
+      }
+
+      final jsonFile = File('${dir.path}/control_red.json');
+      if (needUpdate || !jsonFile.existsSync()) {
+        try {
+          final jsonUrl =
+              'https://raw.githubusercontent.com/XanderM30/RedNeuronal/main/control_red.json';
+          final jsonResponse = await http.get(Uri.parse(jsonUrl));
+          if (jsonResponse.statusCode == 200) {
+            await jsonFile.writeAsBytes(jsonResponse.bodyBytes);
+          }
+        } catch (_) {
+          debugPrint("No se pudo descargar JSON, se usará assets");
+          if (!jsonFile.existsSync()) {
+            final assetData = await DefaultAssetBundle.of(
+              context,
+            ).loadString('assets/control_red.json');
+            await jsonFile.writeAsString(assetData);
+          }
+        }
+      }
+
+      if (needUpdate) await versionFile.writeAsString(remoteVersion);
+
+      if (modelFile.existsSync()) {
+        _interpreter = Interpreter.fromFile(modelFile);
+      }
+      if (_interpreter != null) setState(() => _isModelReady = true);
+
+      String jsonString;
+      if (jsonFile.existsSync()) {
+        jsonString = await jsonFile.readAsString();
+      } else {
+        jsonString = await DefaultAssetBundle.of(
+          context,
+        ).loadString('assets/control_red.json');
+      }
+
+      final List<dynamic> diseasesList = jsonDecode(jsonString);
+      _diseasesData.clear();
+      _diseasesData.addAll(diseasesList);
+
+      symptomDictionary.clear();
+      for (var disease in diseasesList) {
+        if (disease['sintomas'] != null) {
+          for (var symptom in disease['sintomas']) {
+            final key = symptom.toString().toLowerCase();
+            symptomDictionary.putIfAbsent(key, () => [key]);
+          }
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("🆕 Modelo y enfermedades cargados!")),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error actualizando modelo: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error actualizando modelo: $e")),
+        );
+      }
+    }
+  }
+
+  Future<void> _analyzeSymptoms() async {
+    if (!_isModelReady || _interpreter == null) return;
+
+    String inputText = _symptomController.text.toLowerCase().trim();
+    if (inputText.isEmpty) return;
+
+    // Normalizar texto
+    String normalize(String text) {
+      final accents = 'áéíóúü';
+      final replacements = 'aeiouu';
+      for (int i = 0; i < accents.length; i++) {
+        text = text.replaceAll(accents[i], replacements[i]);
+      }
+      return text.toLowerCase();
+    }
+
+    inputText = normalize(inputText);
+
+    // 1️⃣ Crear lista de todos los síntomas posibles
+    final allSymptoms = <String>[];
+    for (var disease in _diseasesData) {
+      if (disease['sintomas'] != null) {
+        for (var s in disease['sintomas']) {
+          final normalizedSymptom = normalize(s.toString().trim());
+          if (!allSymptoms.contains(normalizedSymptom)) {
+            allSymptoms.add(normalizedSymptom);
+          }
+        }
+      }
+    }
+
+    // 2️⃣ Crear vector de entrada según los síntomas que ingresó el usuario
+    List<double> inputVector = List.filled(allSymptoms.length, 0.0);
+    for (int i = 0; i < allSymptoms.length; i++) {
+      if (inputText
+          .split(RegExp(r'\s+'))
+          .any(
+            (word) =>
+                allSymptoms[i].contains(word) || word.contains(allSymptoms[i]),
+          )) {
+        inputVector[i] = 1.0;
+      }
+    }
+
+    // 3️⃣ Ejecutar predicción
+    final outputShape = _interpreter!
+        .getOutputTensor(0)
+        .shape; // [1, num_enfermedades]
+    var output = List.filled(
+      outputShape.reduce((a, b) => a * b),
+      0.0,
+    ).reshape(outputShape);
+    _interpreter!.run([inputVector], output);
+
+    // 4️⃣ Obtener índice con mayor valor
+    final diseaseNames = _diseasesData
+        .map((d) => d['nombre'].toString())
+        .toList();
+    int maxIndex = 0;
+    double maxValue = output[0][0];
+    for (int i = 1; i < output[0].length; i++) {
+      if (output[0][i] > maxValue) {
+        maxValue = output[0][i];
+        maxIndex = i;
+      }
+    }
+
+    // 5️⃣ Mostrar resultado
+    setState(() {
+      _predictionResult =
+          "Predicción: ${diseaseNames[maxIndex]} (${(maxValue * 100).toStringAsFixed(1)}%)";
+    });
   }
 
   @override
@@ -76,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _gradientController.dispose();
     _greetingController.dispose();
     _symptomController.dispose();
+    _interpreter?.close();
     super.dispose();
   }
 
@@ -92,7 +270,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // 👋 Saludo animado
                   FadeTransition(
                     opacity: _fadeAnimation,
                     child: SlideTransition(
@@ -109,8 +286,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 8),
-
-                  // Subtítulo centrado
                   Text(
                     "¿Cómo te sientes hoy?",
                     textAlign: TextAlign.center,
@@ -120,18 +295,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Campo de síntomas con chips + micrófono
-                  _buildSymptomInputWithChips(),
-
+                  _buildSymptomInput(),
+                  const SizedBox(height: 20),
+                  if (_predictionResult.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _predictionResult,
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal.shade900,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 30),
-
-                  // ⚙️ Panel rápido (tarjetas)
                   _buildFeatureGrid(),
-
                   const SizedBox(height: 30),
-
-                  // 💡 Título del carrusel
                   Text(
                     "Recomendaciones de salud",
                     textAlign: TextAlign.center,
@@ -142,13 +326,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 10),
-
-                  // 💡 Carrusel de tips desde Firebase
                   _buildTipsCarousel(),
-
                   const SizedBox(height: 30),
-
-                  // 🤖 Asistente de salud IA
                   _buildHealthAssistantCard(),
                 ],
               ),
@@ -159,8 +338,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Campo para ingresar síntomas + chips sugeridos
-  Widget _buildSymptomInputWithChips() {
+  Widget _buildSymptomInput() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -177,74 +355,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _symptomController,
-                  decoration: const InputDecoration(
-                    hintText: "Describe tus síntomas...",
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-              InkWell(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("🎤 Grabación iniciada (simulada)"),
-                    ),
-                  );
-                },
-                child: Lottie.asset(
-                  'assets/lottie/Microphone.json',
-                  width: 50,
-                  height: 50,
-                  repeat: true,
-                ),
-              ),
-            ],
+          child: TextField(
+            controller: _symptomController,
+            decoration: const InputDecoration(
+              hintText: "Describe tus síntomas...",
+              border: InputBorder.none,
+            ),
           ),
         ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: _commonSymptoms.map((symptom) {
-            final isSelected = _selectedSymptoms.contains(symptom);
-            return ChoiceChip(
-              label: Text(symptom),
-              selected: isSelected,
-              selectedColor: Colors.teal.shade300,
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    _selectedSymptoms.add(symptom);
-                  } else {
-                    _selectedSymptoms.remove(symptom);
-                  }
-                });
-              },
-            );
-          }).toList(),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _analyzeSymptoms,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal.shade600,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              elevation: 5,
+            ),
+            child: Text(
+              "Analizar síntomas",
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
 
-  // Carrusel de tips desde Firebase
   final List<String> _testTips = [
     "Bebe suficiente agua todos los días",
     "Realiza estiramientos por la mañana",
     "Duerme al menos 7 horas",
     "Evita el exceso de azúcar",
     "Camina 30 minutos diarios",
+    "Incluye frutas y verduras en tu dieta",
+    "Lávate las manos con frecuencia",
+    "Practica técnicas de relajación",
+    "Mantén una postura correcta",
+    "Consulta a tu médico regularmente",
+    "Usa protector solar al salir",
+    "Evita el consumo excesivo de alcohol",
+    "Realiza chequeos medicos anuales",
   ];
 
-  // Carrusel de tips mejorado
   Widget _buildTipsCarousel() {
     final tips = _testTips;
-
     return CarouselSlider.builder(
       itemCount: tips.length,
       itemBuilder: (context, index, realIdx) {
@@ -252,15 +415,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(25),
+            borderRadius: BorderRadius.circular(30),
             gradient: LinearGradient(
-              colors: [Colors.teal.shade300, Colors.teal.shade100],
+              colors: [
+                const Color.fromARGB(255, 0, 181, 163),
+                Colors.teal.shade100,
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.teal.shade200.withValues(alpha: 0.6),
+                color: Colors.teal.shade200.withAlpha(150),
                 blurRadius: 12,
                 offset: const Offset(0, 6),
               ),
@@ -294,7 +460,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Panel rápido
   Widget _buildFeatureGrid() {
     final features = [
       {'title': 'Medicación', 'icon': 'assets/lottie/Pills.json'},
@@ -355,7 +520,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Asistente IA
   Widget _buildHealthAssistantCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -383,9 +547,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
-            onPressed: () {
-              // Abrir asistente IA
-            },
+            onPressed: _analyzeSymptoms,
             child: const Text("Analizar"),
           ),
         ],

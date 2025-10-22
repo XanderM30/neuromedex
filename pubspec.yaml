@@ -19,11 +19,16 @@ dependencies:
   connectivity_plus: ^7.0.0
   carousel_slider: ^5.1.1
   logger: ^1.2.2
+  tflite_flutter: ^0.11.0
+  http: ^1.1.2
+  path_provider: ^2.0.14
+  
+  
   
 
 dev_dependencies:
   flutter_test:
-    sdk: flutter
+   sdk: flutter
   flutter_lints: ^5.0.0
 
 flutter:
@@ -38,5 +43,8 @@ flutter:
     - assets/lottie/Profile.json
     - assets/lottie/Configuracion.json
     - assets/lottie/Microphone.json
+    - assets/modelo_enfermedades.tflite
+    - assets/control_red.json
+
     
     
