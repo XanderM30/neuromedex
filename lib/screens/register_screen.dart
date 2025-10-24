@@ -66,7 +66,6 @@ class _RegisterScreenState extends State<RegisterScreen>
       });
       return;
     }
-
     try {
       UserCredential userCredential = await _auth
           .createUserWithEmailAndPassword(

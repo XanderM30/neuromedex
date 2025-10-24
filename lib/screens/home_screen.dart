@@ -8,6 +8,10 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:logger/logger.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_tts/flutter_tts.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,18 +28,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isModelReady = false;
   String _predictionResult = "";
 
+  late stt.SpeechToText _speech;
+  bool _isListening = false;
+  String _voiceInput = "";
   late AnimationController _gradientController;
   late Animation<Color?> _backgroundAnimation;
   late AnimationController _greetingController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
+  late FlutterTts _flutterTts;
 
   final List<dynamic> _diseasesData = [];
   final Map<String, List<String>> symptomDictionary = {};
+  var logger = Logger();
+  bool _isWakeWordMode = true;
+  bool _isAnalyzingConversation = false;
 
   @override
   void initState() {
     super.initState();
+    _speech = stt.SpeechToText();
+    _flutterTts = FlutterTts()
+      ..setLanguage("es-MX")
+      ..setSpeechRate(0.5)
+      ..setVolume(1.0)
+      ..setPitch(1.0);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -59,8 +76,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(parent: _greetingController, curve: Curves.easeOut),
-        );
+      CurvedAnimation(parent: _greetingController, curve: Curves.easeOut),
+    );
 
     _fadeAnimation = Tween<double>(
       begin: 0,
@@ -69,6 +86,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _greetingController.forward();
 
     _checkAndUpdateModel();
+    Future.delayed(const Duration(seconds: 2), () {
+      _startContinuousListening();
+    });
   }
 
   Future<void> _checkAndUpdateModel() async {
@@ -121,9 +141,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         } catch (_) {
           debugPrint("No se pudo descargar JSON, se usará assets");
           if (!jsonFile.existsSync()) {
-            final assetData = await DefaultAssetBundle.of(
-              context,
-            ).loadString('assets/control_red.json');
+            final assetData = await rootBundle.loadString(
+              'assets/control_red.json',
+            );
             await jsonFile.writeAsString(assetData);
           }
         }
@@ -132,18 +152,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (needUpdate) await versionFile.writeAsString(remoteVersion);
 
       if (modelFile.existsSync()) {
-        _interpreter = Interpreter.fromFile(modelFile);
+        try {
+          _interpreter = Interpreter.fromFile(modelFile);
+        } catch (e) {
+          debugPrint("Error cargando modelo: $e");
+        }
       }
       if (_interpreter != null) setState(() => _isModelReady = true);
 
-      String jsonString;
-      if (jsonFile.existsSync()) {
-        jsonString = await jsonFile.readAsString();
-      } else {
-        jsonString = await DefaultAssetBundle.of(
-          context,
-        ).loadString('assets/control_red.json');
-      }
+      String jsonString = jsonFile.existsSync()
+          ? await jsonFile.readAsString()
+          : await rootBundle.loadString('assets/control_red.json');
 
       final List<dynamic> diseasesList = jsonDecode(jsonString);
       _diseasesData.clear();
@@ -180,19 +199,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     String inputText = _symptomController.text.toLowerCase().trim();
     if (inputText.isEmpty) return;
 
-    // Normalizar texto
     String normalize(String text) {
+      text = text.toLowerCase();
       final accents = 'áéíóúü';
       final replacements = 'aeiouu';
       for (int i = 0; i < accents.length; i++) {
         text = text.replaceAll(accents[i], replacements[i]);
       }
-      return text.toLowerCase();
+      text = text.replaceAll(RegExp(r'[^\w\s]'), '');
+      return text;
     }
 
     inputText = normalize(inputText);
 
-    // 1️⃣ Crear lista de todos los síntomas posibles
     final allSymptoms = <String>[];
     for (var disease in _diseasesData) {
       if (disease['sintomas'] != null) {
@@ -205,47 +224,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     }
 
-    // 2️⃣ Crear vector de entrada según los síntomas que ingresó el usuario
     List<double> inputVector = List.filled(allSymptoms.length, 0.0);
     for (int i = 0; i < allSymptoms.length; i++) {
-      if (inputText
-          .split(RegExp(r'\s+'))
-          .any(
-            (word) =>
-                allSymptoms[i].contains(word) || word.contains(allSymptoms[i]),
-          )) {
-        inputVector[i] = 1.0;
+      final symptom = allSymptoms[i];
+      for (var word in inputText.split(RegExp(r'\s+'))) {
+        if (symptom.contains(word) || word.contains(symptom)) {
+          inputVector[i] = 1.0;
+          break;
+        }
       }
     }
 
-    // 3️⃣ Ejecutar predicción
-    final outputShape = _interpreter!
-        .getOutputTensor(0)
-        .shape; // [1, num_enfermedades]
+    final outputShape = _interpreter!.getOutputTensor(0).shape;
     var output = List.filled(
       outputShape.reduce((a, b) => a * b),
       0.0,
     ).reshape(outputShape);
     _interpreter!.run([inputVector], output);
 
-    // 4️⃣ Obtener índice con mayor valor
     final diseaseNames = _diseasesData
         .map((d) => d['nombre'].toString())
         .toList();
-    int maxIndex = 0;
-    double maxValue = output[0][0];
-    for (int i = 1; i < output[0].length; i++) {
-      if (output[0][i] > maxValue) {
-        maxValue = output[0][i];
-        maxIndex = i;
-      }
+
+    final predictions = <Map<String, double>>[];
+    for (int i = 0; i < diseaseNames.length; i++) {
+      predictions.add({diseaseNames[i]: output[0][i]});
     }
 
-    // 5️⃣ Mostrar resultado
-    setState(() {
-      _predictionResult =
-          "Predicción: ${diseaseNames[maxIndex]} (${(maxValue * 100).toStringAsFixed(1)}%)";
-    });
+    predictions.sort((a, b) => b.values.first.compareTo(a.values.first));
+
+    String result = "Predicciones:\n";
+    int top = predictions.length > 3 ? 3 : predictions.length;
+    for (int i = 0; i < top; i++) {
+      final entry = predictions[i];
+      final name = entry.keys.first;
+      final value = (entry.values.first * 100).toStringAsFixed(1);
+      result += "$name: $value%\n";
+    }
+
+    setState(() => _predictionResult = result.trim());
+    await _flutterTts.speak(_predictionResult);
   }
 
   @override
@@ -255,6 +273,119 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _symptomController.dispose();
     _interpreter?.close();
     super.dispose();
+  }
+
+  Future<void> _startContinuousListening() async {
+    logger.i("🎤 Iniciando modo pasivo (esperando 'Xander')...");
+
+    if (_speech.isListening) return;
+
+    bool available = await _speech.initialize(
+      onStatus: (status) async {
+        logger.d("Estado (pasivo): $status");
+
+        if (status == "notListening" && !_isAnalyzingConversation) {
+          await Future.delayed(const Duration(seconds: 4));
+          if (mounted && !_speech.isListening && _isWakeWordMode) {
+            logger.i("🔄 Reiniciando escucha pasiva...");
+            _startContinuousListening();
+          }
+        }
+      },
+      onError: (error) {
+        logger.e("Error en modo pasivo: $error");
+        Future.delayed(const Duration(seconds: 5), () {
+          if (mounted && !_speech.isListening && _isWakeWordMode) {
+            _startContinuousListening();
+          }
+        });
+      },
+    );
+
+    if (!available) {
+      logger.w("⚠️ Reconocimiento de voz no disponible");
+      return;
+    }
+
+    _isListening = true;
+
+    _speech.listen(
+      onResult: (val) async {
+        final spoken = val.recognizedWords.toLowerCase().trim();
+        if (spoken.isEmpty) return;
+
+        logger.i("Detectado (pasivo): $spoken");
+
+        if (spoken.contains("xander")) {
+          logger.i("✅ Wake word detectada: Xander");
+          _isWakeWordMode = false;
+          _isListening = false;
+          await _speech.stop();
+          await _flutterTts.speak("¿Qué pasa?");
+          await Future.delayed(const Duration(milliseconds: 600));
+          _startSymptomListening();
+        }
+      },
+      listenFor: const Duration(minutes: 10),
+      pauseFor: const Duration(seconds: 6),
+      partialResults: true,
+      localeId: "es_MX",
+    );
+  }
+
+  Future<void> _startSymptomListening() async {
+    logger.i("🎧 Escuchando síntomas activamente...");
+
+    if (_speech.isListening) await _speech.stop();
+
+    bool available = await _speech.initialize(
+      onStatus: (status) async {
+        logger.d("Estado (síntomas): $status");
+
+        if (status == "notListening" && !_isWakeWordMode) {
+          await Future.delayed(const Duration(seconds: 3));
+          _isWakeWordMode = true;
+          _startContinuousListening();
+        }
+      },
+      onError: (error) => logger.e("Error en modo síntoma: $error"),
+    );
+
+    if (!available) return;
+
+    _speech.listen(
+      onResult: (val) async {
+        final spoken = val.recognizedWords.toLowerCase().trim();
+        if (spoken.isEmpty) return;
+
+        logger.i("Síntomas detectados: $spoken");
+
+        if (spoken.contains("me duele") ||
+            spoken.contains("tengo") ||
+            spoken.contains("siento")) {
+          _symptomController.text = spoken;
+          await _flutterTts.speak("Déjame analizar tus síntomas...");
+          await _analyzeSymptoms();
+
+          await Future.delayed(const Duration(seconds: 3));
+          _isWakeWordMode = true;
+          _startContinuousListening();
+        }
+      },
+      listenFor: const Duration(minutes: 2),
+      pauseFor: const Duration(seconds: 10),
+      partialResults: true,
+      localeId: "es_MX",
+    );
+  }
+
+  void _listen() {
+    if (_isListening) {
+      _speech.stop();
+      setState(() => _isListening = false);
+    } else {
+      _startSymptomListening();
+    }
   }
 
   @override
@@ -297,22 +428,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   const SizedBox(height: 20),
                   _buildSymptomInput(),
                   const SizedBox(height: 20),
-                  if (_predictionResult.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _predictionResult,
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal.shade900,
-                        ),
-                      ),
-                    ),
+                  if (_predictionResult.isNotEmpty) _buildPredictionCard(),
                   const SizedBox(height: 30),
                   _buildFeatureGrid(),
                   const SizedBox(height: 30),
@@ -338,12 +454,86 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildPredictionCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(25),
+        gradient: LinearGradient(
+          colors: [Colors.teal.shade100, Colors.teal.shade50],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.teal.shade200.withAlpha(100),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Predicciones de enfermedades",
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.teal.shade800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ..._buildPredictionChips(_predictionResult),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPredictionChips(String predictionText) {
+    final lines = predictionText.split('\n');
+    return lines.map((line) {
+      final parts = line.split(':');
+      if (parts.length != 2) return const SizedBox.shrink();
+      final name = parts[0].trim();
+      final percent =
+          double.tryParse(parts[1].replaceAll('%', '').trim()) ?? 0.0;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.teal.shade900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: percent / 100,
+                backgroundColor: Colors.teal.shade50,
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
+                minHeight: 10,
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
   Widget _buildSymptomInput() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
@@ -355,12 +545,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
-          child: TextField(
-            controller: _symptomController,
-            decoration: const InputDecoration(
-              hintText: "Describe tus síntomas...",
-              border: InputBorder.none,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _symptomController,
+                  decoration: const InputDecoration(
+                    hintText: "Describe tus síntomas...",
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  _isListening ? Icons.mic : Icons.mic_none,
+                  color: Colors.teal.shade700,
+                ),
+                onPressed: _listen,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
@@ -403,15 +606,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     "Consulta a tu médico regularmente",
     "Usa protector solar al salir",
     "Evita el consumo excesivo de alcohol",
-    "Realiza chequeos medicos anuales",
+    "Realiza chequeos médicos anuales",
   ];
 
   Widget _buildTipsCarousel() {
-    final tips = _testTips;
     return CarouselSlider.builder(
-      itemCount: tips.length,
+      itemCount: _testTips.length,
       itemBuilder: (context, index, realIdx) {
-        final tip = tips[index];
+        final tip = _testTips[index];
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
           decoration: BoxDecoration(
@@ -434,7 +636,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Text(
                 tip,
                 style: GoogleFonts.poppins(
