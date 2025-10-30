@@ -12,6 +12,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:logger/logger.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'medication_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
-  String _voiceInput = "";
+  //String _voiceInput = "";
   late AnimationController _gradientController;
   late Animation<Color?> _backgroundAnimation;
   late AnimationController _greetingController;
@@ -42,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final Map<String, List<String>> symptomDictionary = {};
   var logger = Logger();
   bool _isWakeWordMode = true;
-  bool _isAnalyzingConversation = false;
+  final bool _isAnalyzingConversation = false;
 
   @override
   void initState() {
@@ -76,8 +77,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-      CurvedAnimation(parent: _greetingController, curve: Curves.easeOut),
-    );
+          CurvedAnimation(parent: _greetingController, curve: Curves.easeOut),
+        );
 
     _fadeAnimation = Tween<double>(
       begin: 0,
@@ -517,8 +518,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               child: LinearProgressIndicator(
                 value: percent / 100,
                 backgroundColor: Colors.teal.shade50,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
                 minHeight: 10,
               ),
             ),
@@ -636,8 +636,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           child: Center(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Text(
                 tip,
                 style: GoogleFonts.poppins(
@@ -685,7 +684,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final item = features[index];
         return InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () {},
+          onTap: () {
+            if (item['title'] == 'Medicación') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MedicationsScreen(),
+                ),
+              );
+            }
+          },
           child: Container(
             decoration: BoxDecoration(
               color: Colors.teal.shade200,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
 
 import 'firebase_options.dart';
 import 'screens/welcome_screen.dart';
@@ -9,7 +10,18 @@ import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Inicializar Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // Inicializar FlutterDownloader
+  await FlutterDownloader.initialize(
+    debug: true, // Cambiar a false en producción
+    ignoreSsl: true, // Opcional, si tienes problemas con certificados SSL
+  );
+
   runApp(const MyApp());
 }
 
