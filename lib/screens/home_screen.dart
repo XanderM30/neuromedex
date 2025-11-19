@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +15,8 @@ import 'package:logger/logger.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'medication_screen.dart';
+
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,11 +48,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   var logger = Logger();
   bool _isWakeWordMode = true;
   final bool _isAnalyzingConversation = false;
+  
 
   @override
   void initState() {
     super.initState();
+
     _speech = stt.SpeechToText();
+
     _flutterTts = FlutterTts()
       ..setLanguage("es-MX")
       ..setSpeechRate(0.5)
@@ -91,6 +98,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _startContinuousListening();
     });
   }
+
+
+  
 
   Future<void> _checkAndUpdateModel() async {
     try {
@@ -237,10 +247,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     final outputShape = _interpreter!.getOutputTensor(0).shape;
-    var output = List.filled(
+    var output = ListShape(List.filled(
       outputShape.reduce((a, b) => a * b),
       0.0,
-    ).reshape(outputShape);
+    )).reshape(outputShape);
     _interpreter!.run([inputVector], output);
 
     final diseaseNames = _diseasesData
@@ -329,6 +339,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
       listenFor: const Duration(minutes: 10),
       pauseFor: const Duration(seconds: 6),
+      // ignore: duplicate_ignore
+      // ignore: deprecated_member_use
       partialResults: true,
       localeId: "es_MX",
     );
@@ -609,6 +621,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     "Realiza chequeos médicos anuales",
   ];
 
+
+
+
   Widget _buildTipsCarousel() {
     return CarouselSlider.builder(
       itemCount: _testTips.length,
@@ -689,7 +704,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const MedicationsScreen(),
+                  builder: (context) => const MedicationScreen(), 
                 ),
               );
             }

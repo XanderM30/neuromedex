@@ -1,167 +1,342 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_downloader/flutter_downloader.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:path_provider/path_provider.dart';
+import 'dart:convert';
 import 'dart:io';
-import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-class MedicationsScreen extends StatefulWidget {
-  const MedicationsScreen({super.key});
+class MedicationScreen extends StatefulWidget {
+  const MedicationScreen({super.key});
 
   @override
-  State<MedicationsScreen> createState() => _MedicationsScreenState();
+  State<MedicationScreen> createState() => _MedicationScreenState();
 }
 
-class _MedicationsScreenState extends State<MedicationsScreen> {
-  Interpreter? _interpreter;
-  bool _isModelReady = false;
-  bool _isDownloading = false;
-  String? _taskId;
+class _MedicationScreenState extends State<MedicationScreen>
+    with TickerProviderStateMixin {
+  final TextEditingController _controller = TextEditingController();
+
+  late File _modelFile;
+  late File _versionFile;
+  late File _controlFile;
+  late File _tokensFile;
+
+  late Interpreter _interpreter;
+  List<Map<String, dynamic>> _medicamentos = [];
+  List<String> _tokens = [];
+  List<Map<String, dynamic>> _resultados = [];
+  bool _loading = true;
+
+  // Animaciones
+  late AnimationController _gradientController;
+  late AnimationController _cardController;
+  late Animation<Color?> _backgroundAnimation;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  final String modelUrl =
+      "https://raw.githubusercontent.com/XanderM30/RedNeuronalMedicamnetos/main/modelo_medicamentos.tflite";
+  final String versionUrl =
+      "https://raw.githubusercontent.com/XanderM30/RedNeuronalMedicamnetos/main/version.txt";
+  final String controlUrl =
+      "https://raw.githubusercontent.com/XanderM30/RedNeuronalMedicamnetos/main/control_medicamentos.json";
+  final String tokensUrl =
+      "https://raw.githubusercontent.com/XanderM30/RedNeuronalMedicamnetos/main/tokens.json";
 
   @override
   void initState() {
     super.initState();
-    _initNotifications();
-    _startDownload();
+    _setupAnimations();
+    _initFiles();
   }
 
-  void _initNotifications() {
-    AwesomeNotifications().initialize(null, [
-      NotificationChannel(
-        channelKey: 'model_updates',
-        channelName: 'Model Updates',
-        channelDescription: 'Notificaciones de descarga de modelo',
-        defaultColor: Colors.teal,
-        importance: NotificationImportance.High,
-        channelShowBadge: true,
-      ),
-    ]);
-  }
+  void _setupAnimations() {
+    _gradientController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 5),
+    )..repeat(reverse: true);
 
-  Future<void> _startDownload() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final modelFile = File('${dir.path}/modelo_medicamentos_dinamico.tflite');
+    _backgroundAnimation = ColorTween(
+      begin: Colors.teal.shade100,
+      end: Colors.teal.shade50,
+    ).animate(_gradientController);
 
-    // Si el archivo ya existe, solo cargarlo
-    if (modelFile.existsSync()) {
-      _loadModel(modelFile);
-      return;
-    }
-
-    final url =
-        'https://raw.githubusercontent.com/XanderM30/Red-Neuronal-Medicamento/main/modelo_medicamentos_dinamico.tflite';
-
-    setState(() {
-      _isDownloading = true;
-    });
-
-    _taskId = await FlutterDownloader.enqueue(
-      url: url,
-      savedDir: dir.path,
-      fileName: 'modelo_medicamentos_dinamico.tflite',
-      showNotification: true,
-      openFileFromNotification: false,
+    _cardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
     );
 
-    FlutterDownloader.registerCallback(downloadCallback as DownloadCallback);
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _cardController, curve: Curves.easeIn));
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.2),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _cardController, curve: Curves.easeOut));
   }
 
-  @pragma('vm:entry-point')
-  static void downloadCallback(
-    String id,
-    DownloadTaskStatus status,
-    int progress,
-  ) async {
-    if (status == DownloadTaskStatus.complete) {
-      final dir = await getApplicationDocumentsDirectory();
-      final modelFile = File('${dir.path}/modelo_medicamentos_dinamico.tflite');
+  Future<void> _initFiles() async {
+    setState(() => _loading = true);
 
-      // Crear notificación
-      AwesomeNotifications().createNotification(
-        content: NotificationContent(
-          id: 1,
-          channelKey: 'model_updates',
-          title: 'Descarga completada ✅',
-          body: 'El modelo de medicamentos ya está listo.',
-        ),
-      );
+    final dir = await getApplicationDocumentsDirectory();
+    _modelFile = File('${dir.path}/modelo_medicamentos.tflite');
+    _versionFile = File('${dir.path}/version.txt');
+    _controlFile = File('${dir.path}/control_medicamentos.json');
+    _tokensFile = File('${dir.path}/tokens.json');
 
-      // Cargar modelo
-      try {
-        Interpreter.fromFile(modelFile);
-        debugPrint('✅ Modelo cargado correctamente en background');
-      } catch (e) {
-        debugPrint('Error cargando modelo: $e');
+    if (!await _versionFile.exists()) await _versionFile.writeAsString('0');
+
+    await _checkAndUpdate();
+    await _loadModelAndControl();
+
+    setState(() => _loading = false);
+  }
+
+  Future<void> _checkAndUpdate() async {
+    int localVersion = int.tryParse(await _versionFile.readAsString()) ?? 0;
+    int remoteVersion = 0;
+
+    try {
+      final res = await http.get(Uri.parse(versionUrl));
+      if (res.statusCode == 200) {
+        remoteVersion = int.tryParse(res.body.trim()) ?? 0;
+      }
+    } catch (e) {
+      if (kDebugMode) print("Error leyendo versión remota: $e");
+    }
+
+    if (remoteVersion > localVersion ||
+        !await _modelFile.exists() ||
+        !await _controlFile.exists() ||
+        !await _tokensFile.exists()) {
+      if (kDebugMode) print("⬆️ Descargando archivos necesarios...");
+
+      await _downloadFile(modelUrl, _modelFile);
+      await _downloadFile(controlUrl, _controlFile);
+      await _downloadFile(tokensUrl, _tokensFile);
+
+      await _versionFile.writeAsString(remoteVersion.toString());
+      if (kDebugMode) print("✅ Descarga completa");
+    } else {
+      if (kDebugMode) {
+        print("✅ Ya tienes la versión más reciente: $localVersion");
       }
     }
   }
 
-  void _loadModel(File modelFile) {
-    try {
-      _interpreter = Interpreter.fromFile(modelFile);
-      setState(() {
-        _isModelReady = true;
-        _isDownloading = false;
-      });
-      debugPrint("✅ Modelo cargado correctamente");
-    } catch (e) {
-      debugPrint("Error cargando modelo: $e");
+  Future<void> _downloadFile(String url, File dest) async {
+    final res = await http.get(Uri.parse(url));
+    if (res.statusCode == 200) {
+      await dest.writeAsBytes(res.bodyBytes);
+    } else {
+      throw Exception("Error descargando archivo: $url");
     }
+  }
+
+  Future<void> _loadModelAndControl() async {
+    _interpreter = Interpreter.fromFile(_modelFile);
+
+    String content = await _controlFile.readAsString();
+    _medicamentos = List<Map<String, dynamic>>.from(json.decode(content));
+
+    String tokensContent = await _tokensFile.readAsString();
+    _tokens = List<String>.from(json.decode(tokensContent));
+  }
+
+  String _normalize(String s) {
+    s = s.toLowerCase();
+    s = s.replaceAll(RegExp(r'[áàä]'), 'a');
+    s = s.replaceAll(RegExp(r'[éèë]'), 'e');
+    s = s.replaceAll(RegExp(r'[íìï]'), 'i');
+    s = s.replaceAll(RegExp(r'[óòö]'), 'o');
+    s = s.replaceAll(RegExp(r'[úùü]'), 'u');
+    s = s.replaceAll(RegExp(r'[^a-z0-9 ]'), '');
+    return s;
+  }
+
+  void _buscarMedicamento(String input) {
+    if (input.isEmpty) {
+      setState(() => _resultados = []);
+      return;
+    }
+
+    input = _normalize(input);
+
+    // Construir vector de entrada para la red neuronal basado en tokens del nombre exacto
+    List<double> inputVector = List.filled(_tokens.length, 0.0);
+    for (int i = 0; i < _tokens.length; i++) {
+      // Solo activamos tokens que aparecen exactamente en el input
+      if (input.contains(_tokens[i])) {
+        inputVector[i] = 1.0;
+      }
+    }
+
+    // Ejecutar la red neuronal
+    List<List<double>> output = List.generate(
+      1,
+      (_) => List.filled(_medicamentos.length, 0.0),
+    );
+    _interpreter.run([inputVector], output);
+
+    // Encontrar el medicamento cuya predicción sea máxima y además coincida en nombre
+    double maxProb = -1;
+    int maxIndex = -1;
+
+    for (int i = 0; i < _medicamentos.length; i++) {
+      double prob = output[0][i];
+      // Normalizamos nombre del medicamento para comparación
+      String medName = _normalize(_medicamentos[i]["nombre"]);
+      if (prob > maxProb && medName.contains(input)) {
+        maxProb = prob;
+        maxIndex = i;
+      }
+    }
+
+    // Guardar solo el top-1 que coincida
+    List<Map<String, dynamic>> results = [];
+    if (maxIndex != -1 && maxProb > 0.01) {
+      results.add({
+        "medicamento": _medicamentos[maxIndex]["nombre"],
+        "probabilidad": (maxProb * 100).toStringAsFixed(1),
+        "info": _medicamentos[maxIndex],
+      });
+    }
+
+    _cardController.forward(from: 0);
+    setState(() => _resultados = results);
+  }
+
+  Widget _buildSearchResults() {
+    if (_resultados.isEmpty) {
+      return const Center(child: Text("No se encontraron medicamentos"));
+    }
+
+    return Column(
+      children: _resultados.map((m) {
+        return FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      m['medicamento'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text("Tipo: ${m['info']['tipo'] ?? ''}"),
+                    Text("Descripción: ${m['info']['descripcion'] ?? ''}"),
+                    Text("Usos: ${m['info']['usos'] ?? ''}"),
+                    Text("Reacciones: ${m['info']['reacciones'] ?? ''}"),
+                    Text("Presentación: ${m['info']['presentacion'] ?? ''}"),
+                    Text(
+                      "Contraindicaciones: ${m['info']['contraindicaciones'] ?? ''}",
+                    ),
+                    //Text("Dosis: ${m['info']['dosis'] ?? ''}"),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          "Medicación",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.teal.shade600,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "💊 Tus medicamentos",
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.teal.shade800,
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (_isDownloading)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text("Descargando modelo..."),
-                  SizedBox(height: 8),
-                  LinearProgressIndicator(),
-                  SizedBox(height: 12),
+    return AnimatedBuilder(
+      animation: _gradientController,
+      builder: (context, child) {
+        return Scaffold(
+          backgroundColor: _backgroundAnimation.value,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: Text(
+                        "Hola 👋",
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal.shade800,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Busca tu medicamento",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      color: Colors.teal.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _controller,
+                    decoration: InputDecoration(
+                      labelText: "Nombre del medicamento",
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _controller.clear();
+                          _buscarMedicamento("");
+                        },
+                      ),
+                    ),
+                    onChanged: _buscarMedicamento,
+                  ),
+                  const SizedBox(height: 20),
+                  _loading
+                      ? const CircularProgressIndicator()
+                      : _buildSearchResults(),
                 ],
-              )
-            else
-              Text(
-                _isModelReady
-                    ? "El modelo está listo para usar."
-                    : "Cargando modelo, por favor espera...",
-              ),
-            const SizedBox(height: 30),
-            const Center(
-              child: Text(
-                "🕓 Próximamente podrás añadir tus tratamientos.",
-                textAlign: TextAlign.center,
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
+  }
+}
+
+extension ListReshape on List {
+  List<List<dynamic>> reshape(List<int> shape) {
+    if (shape.length != 2) throw Exception("Solo soporta 2D");
+    int rows = shape[0], cols = shape[1];
+    if (length != rows * cols) throw Exception("Dimensiones no coinciden");
+    List<List<dynamic>> result = [];
+    for (int i = 0; i < rows; i++) {
+      result.add(sublist(i * cols, (i + 1) * cols));
+    }
+    return result;
   }
 }

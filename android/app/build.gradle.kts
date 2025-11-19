@@ -38,6 +38,10 @@ android {
         implementation("com.google.firebase:firebase-auth")
         implementation("com.google.firebase:firebase-firestore")
         coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3") // ✅ ya estaba
+        implementation ("org.tensorflow:tensorflow-lite:2.16.1")
+
+   
+        implementation ("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
     }
 
     buildTypes {
