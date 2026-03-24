@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,32 +8,26 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:logger/logger.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'medication_screen.dart';
-
-
+import 'monitoring_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  String _userName = "Usuario";
+class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final TextEditingController _symptomController = TextEditingController();
 
   Interpreter? _interpreter;
   bool _isModelReady = false;
   String _predictionResult = "";
 
-  late stt.SpeechToText _speech;
-  bool _isListening = false;
-  //String _voiceInput = "";
   late AnimationController _gradientController;
   late Animation<Color?> _backgroundAnimation;
   late AnimationController _greetingController;
@@ -46,15 +38,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final List<dynamic> _diseasesData = [];
   final Map<String, List<String>> symptomDictionary = {};
   var logger = Logger();
-  bool _isWakeWordMode = true;
-  final bool _isAnalyzingConversation = false;
-  
 
   @override
   void initState() {
     super.initState();
-
-    _speech = stt.SpeechToText();
 
     _flutterTts = FlutterTts()
       ..setLanguage("es-MX")
@@ -63,9 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ..setPitch(1.0);
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      _userName = user.displayName ?? user.email?.split("@")[0] ?? "Usuario";
-    }
+    if (user != null) {}
 
     _gradientController = AnimationController(
       vsync: this,
@@ -92,15 +77,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       end: 1,
     ).animate(_greetingController);
     _greetingController.forward();
-
     _checkAndUpdateModel();
-    Future.delayed(const Duration(seconds: 2), () {
-      _startContinuousListening();
-    });
   }
-
-
-  
 
   Future<void> _checkAndUpdateModel() async {
     try {
@@ -202,9 +180,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       }
     }
+    _greetingController.forward();
   }
 
-  Future<void> _analyzeSymptoms() async {
+  // Simulación de animación de bienvenida
+  Future<void> analyzeSymptoms() async {
     if (!_isModelReady || _interpreter == null) return;
 
     String inputText = _symptomController.text.toLowerCase().trim();
@@ -234,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       }
     }
-
+    //
     List<double> inputVector = List.filled(allSymptoms.length, 0.0);
     for (int i = 0; i < allSymptoms.length; i++) {
       final symptom = allSymptoms[i];
@@ -245,12 +225,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       }
     }
-
+    //
     final outputShape = _interpreter!.getOutputTensor(0).shape;
-    var output = ListShape(List.filled(
-      outputShape.reduce((a, b) => a * b),
-      0.0,
-    )).reshape(outputShape);
+    var output = List.generate(
+      outputShape[0],
+      (_) => List.filled(outputShape[1], 0.0),
+    );
+
     _interpreter!.run([inputVector], output);
 
     final diseaseNames = _diseasesData
@@ -277,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await _flutterTts.speak(_predictionResult);
   }
 
+  // Simulación de animación de bienvenida
   @override
   void dispose() {
     _gradientController.dispose();
@@ -286,261 +268,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Future<void> _startContinuousListening() async {
-    logger.i("🎤 Iniciando modo pasivo (esperando 'Xander')...");
-
-    if (_speech.isListening) return;
-
-    bool available = await _speech.initialize(
-      onStatus: (status) async {
-        logger.d("Estado (pasivo): $status");
-
-        if (status == "notListening" && !_isAnalyzingConversation) {
-          await Future.delayed(const Duration(seconds: 4));
-          if (mounted && !_speech.isListening && _isWakeWordMode) {
-            logger.i("🔄 Reiniciando escucha pasiva...");
-            _startContinuousListening();
-          }
-        }
-      },
-      onError: (error) {
-        logger.e("Error en modo pasivo: $error");
-        Future.delayed(const Duration(seconds: 5), () {
-          if (mounted && !_speech.isListening && _isWakeWordMode) {
-            _startContinuousListening();
-          }
-        });
-      },
-    );
-
-    if (!available) {
-      logger.w("⚠️ Reconocimiento de voz no disponible");
-      return;
-    }
-
-    _isListening = true;
-
-    _speech.listen(
-      onResult: (val) async {
-        final spoken = val.recognizedWords.toLowerCase().trim();
-        if (spoken.isEmpty) return;
-
-        logger.i("Detectado (pasivo): $spoken");
-
-        if (spoken.contains("xander")) {
-          logger.i("✅ Wake word detectada: Xander");
-          _isWakeWordMode = false;
-          _isListening = false;
-          await _speech.stop();
-          await _flutterTts.speak("¿Qué pasa?");
-          await Future.delayed(const Duration(milliseconds: 600));
-          _startSymptomListening();
-        }
-      },
-      listenFor: const Duration(minutes: 10),
-      pauseFor: const Duration(seconds: 6),
-      // ignore: duplicate_ignore
-      // ignore: deprecated_member_use
-      partialResults: true,
-      localeId: "es_MX",
-    );
-  }
-
-  Future<void> _startSymptomListening() async {
-    logger.i("🎧 Escuchando síntomas activamente...");
-
-    if (_speech.isListening) await _speech.stop();
-
-    bool available = await _speech.initialize(
-      onStatus: (status) async {
-        logger.d("Estado (síntomas): $status");
-
-        if (status == "notListening" && !_isWakeWordMode) {
-          await Future.delayed(const Duration(seconds: 3));
-          _isWakeWordMode = true;
-          _startContinuousListening();
-        }
-      },
-      onError: (error) => logger.e("Error en modo síntoma: $error"),
-    );
-
-    if (!available) return;
-
-    _speech.listen(
-      onResult: (val) async {
-        final spoken = val.recognizedWords.toLowerCase().trim();
-        if (spoken.isEmpty) return;
-
-        logger.i("Síntomas detectados: $spoken");
-
-        if (spoken.contains("me duele") ||
-            spoken.contains("tengo") ||
-            spoken.contains("siento")) {
-          _symptomController.text = spoken;
-          await _flutterTts.speak("Déjame analizar tus síntomas...");
-          await _analyzeSymptoms();
-
-          await Future.delayed(const Duration(seconds: 3));
-          _isWakeWordMode = true;
-          _startContinuousListening();
-        }
-      },
-      listenFor: const Duration(minutes: 2),
-      pauseFor: const Duration(seconds: 10),
-      partialResults: true,
-      localeId: "es_MX",
-    );
-  }
-
-  void _listen() {
-    if (_isListening) {
-      _speech.stop();
-      setState(() => _isListening = false);
-    } else {
-      _startSymptomListening();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _gradientController,
-      builder: (context, child) {
-        return Scaffold(
-          backgroundColor: _backgroundAnimation.value,
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: SlideTransition(
-                      position: _slideAnimation,
-                      child: Text(
-                        "Hola \n$_userName 👋",
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal.shade800,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "¿Cómo te sientes hoy?",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      color: Colors.teal.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildSymptomInput(),
-                  const SizedBox(height: 20),
-                  if (_predictionResult.isNotEmpty) _buildPredictionCard(),
-                  const SizedBox(height: 30),
-                  _buildFeatureGrid(),
-                  const SizedBox(height: 30),
-                  Text(
-                    "Recomendaciones de salud",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.teal.shade700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _buildTipsCarousel(),
-                  const SizedBox(height: 30),
-                  _buildHealthAssistantCard(),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPredictionCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(25),
-        gradient: LinearGradient(
-          colors: [Colors.teal.shade100, Colors.teal.shade50],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.teal.shade200.withAlpha(100),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Predicciones de enfermedades",
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.teal.shade800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ..._buildPredictionChips(_predictionResult),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildPredictionChips(String predictionText) {
-    final lines = predictionText.split('\n');
-    return lines.map((line) {
-      final parts = line.split(':');
-      if (parts.length != 2) return const SizedBox.shrink();
-      final name = parts[0].trim();
-      final percent =
-          double.tryParse(parts[1].replaceAll('%', '').trim()) ?? 0.0;
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              name,
-              style: GoogleFonts.poppins(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.teal.shade900,
-              ),
-            ),
-            const SizedBox(height: 4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: percent / 100,
-                backgroundColor: Colors.teal.shade50,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
-                minHeight: 10,
-              ),
-            ),
-          ],
-        ),
-      );
-    }).toList();
-  }
-
-  Widget _buildSymptomInput() {
+  Widget buildSymptomInput() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -562,18 +290,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Expanded(
                 child: TextField(
                   controller: _symptomController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: "Describe tus síntomas...",
-                    border: InputBorder.none,
+                    prefixIcon: const Icon(Icons.search, color: Colors.teal),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                icon: Icon(
-                  _isListening ? Icons.mic : Icons.mic_none,
-                  color: Colors.teal.shade700,
-                ),
-                onPressed: _listen,
               ),
             ],
           ),
@@ -582,21 +309,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _analyzeSymptoms,
+            onPressed: analyzeSymptoms, // Llama a la función de análisis
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.teal.shade600,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 18),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(25),
               ),
-              elevation: 5,
+              elevation: 8,
+              shadowColor: Colors.teal.withValues(alpha: 0.4),
             ),
             child: Text(
               "Analizar síntomas",
               style: GoogleFonts.poppins(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),
@@ -605,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  final List<String> _testTips = [
+  final List<String> testTips = [
     "Bebe suficiente agua todos los días",
     "Realiza estiramientos por la mañana",
     "Duerme al menos 7 horas",
@@ -621,70 +349,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     "Realiza chequeos médicos anuales",
   ];
 
-
-
-
-  Widget _buildTipsCarousel() {
-    return CarouselSlider.builder(
-      itemCount: _testTips.length,
-      itemBuilder: (context, index, realIdx) {
-        final tip = _testTips[index];
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
-            gradient: LinearGradient(
-              colors: [
-                const Color.fromARGB(255, 0, 181, 163),
-                Colors.teal.shade100,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.teal.shade200.withAlpha(150),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Text(
-                tip,
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.teal.shade900,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        );
-      },
-      options: CarouselOptions(
-        height: 200,
-        autoPlay: true,
-        enlargeCenterPage: true,
-        viewportFraction: 0.85,
-        autoPlayInterval: const Duration(seconds: 3),
-        autoPlayAnimationDuration: const Duration(milliseconds: 800),
-        scrollPhysics: const BouncingScrollPhysics(),
-      ),
-    );
-  }
-
-  Widget _buildFeatureGrid() {
+  Widget buildFeatureGrid() {
     final features = [
       {'title': 'Medicación', 'icon': 'assets/lottie/Pills.json'},
       {'title': 'Monitoreo', 'icon': 'assets/lottie/Heart.json'},
       {'title': 'Citas', 'icon': 'assets/lottie/Calendar.json'},
       {'title': 'Recordatorios', 'icon': 'assets/lottie/Notification.json'},
     ];
-
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -704,20 +375,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const MedicationScreen(), 
+                  builder: (context) => const MedicationScreen(),
+                ),
+              );
+            } else if (item['title'] == 'Monitoreo') {
+              // si el usuario da click en monitoreo, lo manda a la pantalla de monitoreo
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      const MonitoringScreen(), //builder sirve para construir la pantalla de monitoreo
                 ),
               );
             }
           },
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.teal.shade200,
+              gradient: LinearGradient(
+                colors: [Colors.teal.shade300, Colors.teal.shade500],
+              ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.teal.shade100,
+                  color: Colors.teal.withValues(alpha: 0.3),
                   blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  offset: const Offset(0, 5),
                 ),
               ],
             ),
@@ -746,18 +428,62 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget buildTipsCarousel() {
+    return CarouselSlider(
+      options: CarouselOptions(
+        height: 120, // esto sirve para que el carrusel no se vea tan pequeño
+        autoPlay: true,
+        enlargeCenterPage: true,
+        viewportFraction: 0.85,
+      ),
+      items: testTips.map((tip) {
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 5),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.teal.shade300,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: Center(
+            child: Text(
+              tip,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+                fontSize: 20,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildHealthAssistantCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.teal.shade700,
+        gradient: LinearGradient(
+          colors: [Colors.teal.shade600, Colors.teal.shade800],
+        ),
         borderRadius: BorderRadius.circular(25),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.teal.withValues(alpha: 0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
+          const Icon(Icons.health_and_safety, color: Colors.white, size: 50),
+          const SizedBox(width: 15),
           Expanded(
             child: Text(
-              "🤖 Tu asistente de salud\nAnaliza tus síntomas con IA",
+              "Asistente de salud con IA\nAnaliza tus síntomas en segundos",
+              textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 color: Colors.white,
                 fontSize: 16,
@@ -765,18 +491,78 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.teal.shade700,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _backgroundAnimation.value ?? Colors.white,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        centerTitle: true,
+        title: Text(
+          "NeuroMedX",
+          style: GoogleFonts.lobster(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: Colors.teal.shade800,
+          ),
+        ),
+      ),
+      body: AnimatedBuilder(
+        animation: _backgroundAnimation,
+        builder: (context, child) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 5),
+                  // Tarjeta IA
+                  FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: _buildHealthAssistantCard(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Input síntomas
+                  buildSymptomInput(),
+
+                  const SizedBox(height: 20),
+
+                  // Resultado IA
+                  if (_predictionResult.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade50,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _predictionResult,
+                        style: GoogleFonts.poppins(fontSize: 14),
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+
+                  // Carrusel de tips
+                  buildFeatureGrid(),
+                  testTips.isNotEmpty ? const SizedBox(height: 5) : Container(),
+                  if (testTips.isNotEmpty) buildTipsCarousel(),
+                ],
               ),
             ),
-            onPressed: _analyzeSymptoms,
-            child: const Text("Analizar"),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

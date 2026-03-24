@@ -11,6 +11,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_core
   flutter_tts
   permission_handler_windows
+  printing
   speech_to_text_windows
 )
 

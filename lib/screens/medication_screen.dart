@@ -96,6 +96,7 @@ class _MedicationScreenState extends State<MedicationScreen>
     setState(() => _loading = false);
   }
 
+  // El método _checkAndUpdate verifica la versión local del modelo y los archivos de control, y los compara con la versión remota disponible en GitHub. Si la versión remota es más reciente o si alguno de los archivos necesarios no existe localmente, se descargan los archivos desde GitHub y se actualiza la versión local. Esto asegura que el usuario siempre tenga la última versión del modelo y los datos asociados sin necesidad de actualizar la aplicación desde la tienda.
   Future<void> _checkAndUpdate() async {
     int localVersion = int.tryParse(await _versionFile.readAsString()) ?? 0;
     int remoteVersion = 0;
@@ -144,7 +145,9 @@ class _MedicationScreenState extends State<MedicationScreen>
     _medicamentos = List<Map<String, dynamic>>.from(json.decode(content));
 
     String tokensContent = await _tokensFile.readAsString();
-    _tokens = List<String>.from(json.decode(tokensContent));
+    _tokens = List<String>.from(
+      json.decode(tokensContent),
+    ); // esperamos un array de strings con los tokens usados para el input de la red neuronal
   }
 
   String _normalize(String s) {
@@ -205,16 +208,16 @@ class _MedicationScreenState extends State<MedicationScreen>
         "info": _medicamentos[maxIndex],
       });
     }
-
     _cardController.forward(from: 0);
     setState(() => _resultados = results);
   }
 
+  // Construir la UI para mostrar los resultados de búsqueda
   Widget _buildSearchResults() {
     if (_resultados.isEmpty) {
       return const Center(child: Text("No se encontraron medicamentos"));
     }
-
+    // Solo mostramos el medicamento con mayor probabilidad que además coincida en nombre
     return Column(
       children: _resultados.map((m) {
         return FadeTransition(
@@ -276,14 +279,27 @@ class _MedicationScreenState extends State<MedicationScreen>
                     opacity: _fadeAnimation,
                     child: SlideTransition(
                       position: _slideAnimation,
-                      child: Text(
-                        "Hola 👋",
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal.shade800,
-                        ),
+                      child: Column(
+                        children: [
+                          Text(
+                            "💊 Buscador inteligente",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal.shade800,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Encuentra información médica confiable al instante",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              color: Colors.teal.shade600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -300,9 +316,14 @@ class _MedicationScreenState extends State<MedicationScreen>
                   TextField(
                     controller: _controller,
                     decoration: InputDecoration(
-                      labelText: "Nombre del medicamento",
+                      hintText: "Ej. Paracetamol",
+                      prefixIcon: const Icon(Icons.search, color: Colors.teal),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 18),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
                       ),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.clear),
@@ -316,7 +337,17 @@ class _MedicationScreenState extends State<MedicationScreen>
                   ),
                   const SizedBox(height: 20),
                   _loading
-                      ? const CircularProgressIndicator()
+                      ? Column(
+                          children: [
+                            const SizedBox(height: 30),
+                            const CircularProgressIndicator(color: Colors.teal),
+                            const SizedBox(height: 10),
+                            Text(
+                              "Cargando modelo médico...",
+                              style: GoogleFonts.poppins(fontSize: 13),
+                            ),
+                          ],
+                        )
                       : _buildSearchResults(),
                 ],
               ),
