@@ -64,7 +64,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    super.dispose();
+    super.dispose(); //este 
   }
 
   // -------------------- UI CARDS --------------------
