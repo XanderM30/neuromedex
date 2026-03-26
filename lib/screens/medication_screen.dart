@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class MedicationScreen extends StatefulWidget {
+class MedicationScreen extends StatefulWidget {// Pantalla principal para buscar medicamentos usando una red neuronal local
   const MedicationScreen({super.key});
 
   @override
